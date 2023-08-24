@@ -55,7 +55,7 @@ def page_config():
     st.set_page_config(
         page_title="WattRank",
         page_icon="⚡",
-        layout="wide",
+        # layout="wide",
         menu_items={
             "Get Help": None,
             "Report a bug": "mailto:wattrank@gmail.com",
@@ -87,7 +87,7 @@ def layout():
     # Hide footer and hamburger menu
     hide_streamlit_style = """
                 <style>
-                #MainMenu {visibility: hidden;}
+
                 footer {visibility: hidden;}
                 </style>
                 """
