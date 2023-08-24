@@ -8,10 +8,12 @@ Created on Sun May  1 13:21:11 2022.
 # Import Python Libraries
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_option_menu import option_menu
 import plotly.express as px
 import numpy as np
 import database
+import cell_energy
 
 
 config = {"displaylogo": False}
@@ -94,7 +96,9 @@ def layout():
 
 @st.cache_data(ttl=3600)
 def read_sql(table_name):
-    return database.get_table(table_name)
+    if table_name not in st.session_state:
+        st.session_state[table_name] = database.get_table(table_name)
+    return st.session_state[table_name]
 
 
 def read_csv(path):  # depreciated
@@ -114,6 +118,13 @@ def read_csv(path):  # depreciated
     return pd.read_csv(path)
 
 
+def fetch_latest_data():
+    if st.session_state["df_state"] == 0:
+        return read_sql("data")
+    else:
+        return st.session_state.data
+
+
 def rename_columns(df, df_params):
     name_map = dict(zip(df_params["short_name"], df_params["long_name"]))
     df.rename(columns=name_map, inplace=True)
@@ -121,9 +132,9 @@ def rename_columns(df, df_params):
 
 def replace_nan(dataframe):
     """Replace NaN values with 'None' in non numerical columns."""
-    object_cols = df.select_dtypes(["object"]).fillna("_No data_")
-    df[object_cols.columns] = object_cols
-    return df
+    object_cols = dataframe.select_dtypes(["object"]).fillna("_No data_")
+    dataframe[object_cols.columns] = object_cols
+    return dataframe
 
 
 def clean_axes_data(data, x, y):
@@ -445,8 +456,8 @@ def filters(df, x, y, preset):
         "Internal resistance (mOhm)",
     ]
     filters_slider = list(set(filters_slider) - set([x, y]))
-    all_filters = filters_multiselect + filters_slider
-    filters_count = len(all_filters)
+    # all_filters = filters_multiselect + filters_slider
+    # filters_count = len(all_filters)
     st.markdown("## *Filters:*")
 
     # reseting filters using session state count
@@ -473,7 +484,8 @@ def filters(df, x, y, preset):
         if len(selected_option) > 0:
             new_df = new_df[
                 new_df[parameter].apply(
-                    lambda x: any(i.strip() in selected_option for i in x.split(","))
+                    lambda x: any(i.strip() in selected_option
+                                  for i in x.split(","))
                 )
             ]
 
@@ -854,15 +866,95 @@ def convert_df(df):
     return df.to_csv().encode("utf-8")
 
 
+def add_data_to_df(df, new_data):
+    new_data = {col: new_data[col] for col in df.columns if col in new_data}
+    st.session_state.data = pd.concat(
+    [df, pd.DataFrame(new_data, index=[len(df)])], ignore_index=True,
+    )
+    return st.session_state.data
+
+
+# def kofi_button():
+#     button = """
+#         <body>
+#         <style>
+#             .floatingchat-container-wrap {
+#                 position:fixed;
+#                 bottom:16px;
+#                 left:170px;
+#                 z-index:99999999!important;
+#                 width:100%;
+#                 height:65px;
+#                 max-width:180px
+#             }
+#         </style>
+#         <script src='https://storage.ko-fi.com/cdn/scripts/overlay-widget.js'></script>
+#             <script>
+#             kofiWidgetOverlay.draw('marcinorzech', {
+#                 'type': 'floating-chat',
+#                 'floating-chat.donateButton.text': 'Support me',
+#                 'floating-chat.donateButton.background-color': '#d9534f',
+#                 'floating-chat.donateButton.text-color': '#fff',
+#             });
+#             </script>
+#         </body>
+#     """
+#     return button
+def kofi_button():
+    button = """
+        <body>
+        <style>
+            .floatingchat-container-wrap {
+                position:fixed;
+                bottom:16px;
+                left:170px;
+                z-index:99999999!important;
+                width:100%;
+                height:65px;
+                max-width:180px;
+            }
+        </style>
+        <script src='https://storage.ko-fi.com/cdn/scripts/overlay-widget.js'></script>
+            <script>
+            kofiWidgetOverlay.draw('marcinorzech', {
+                'type': 'floating-chat',
+                'floating-chat.donateButton.text': 'Support me',
+                'floating-chat.donateButton.background-color': '#d9534f',
+                'floating-chat.donateButton.text-color': '#fff',
+            });
+            </script>
+        </body>
+    """
+    return button
+
+def float_button(button):
+    components.html(button, height=650, width=355)
+
+    st.markdown(
+        """
+        <style>
+            iframe[width="355"] {
+                position: fixed;
+                bottom: 20px;
+                right: 50px;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 page_config()
 layout()
 
-df = read_sql("data")
+session_state_init("filters")
+session_state_init("form")
+session_state_init("calc")
+session_state_init("df_state")
+df = fetch_latest_data()
 df_params = read_sql("parameters")
 rename_columns(df, df_params)
 df = replace_nan(df)
-session_state_init("filters")
-session_state_init("form")
 
 # Multipage menu
 with st.sidebar:
@@ -875,6 +967,7 @@ with st.sidebar:
             "Custom plot",
             "Add data",
             "Source data",
+            "Cell energy calculator",
             "About",
         ],
         icons=[
@@ -884,6 +977,7 @@ with st.sidebar:
             "graph-up",
             "upload",
             "stack",
+            "calculator",
             "person lines fill",
         ],
         menu_icon="lightning-charge",
@@ -905,9 +999,8 @@ if choose == "Home":
     ABOUT = read_file("readme.md")
     st.title("⚡ WattRank")
     st.markdown(ABOUT)
+    float_button(kofi_button())
     "---"
-    # st.write('## Latest update:')
-    # here I want to post the updates
 
 elif choose == "Energy plots":
     x = "Specific Energy (Wh/kg)"
@@ -1027,6 +1120,31 @@ elif choose == "Source data":
                 """
     )
 
+elif choose == "Cell energy calculator":
+    calc_data = cell_energy.run_calc()
+    if calc_data:
+        df = add_data_to_df(df, calc_data)
+        st.dataframe(
+            df.tail(st.session_state.df_state+1)
+            .style.format(thousands="", precision=1)
+            .apply(
+                lambda x: [
+                    "background-color: #8587BD" if i == df.index[-1]
+                    else "" for i in x.index
+                ],
+                axis=0,
+            )
+        )
+        reset_state("df_state")
+        st.download_button(
+            label="***Download calculation results***",
+            data=convert_df(df.tail(st.session_state.df_state)),
+            file_name="WattRank.csv",
+            mime="text/csv",
+        )
+    if st.button("Clean all calculation results"):
+        st.session_state.df_state = 0
+
 elif choose == "About":
     st.title("Hi!")
     c1, c2 = st.columns([2, 1], gap="large")
@@ -1042,6 +1160,20 @@ elif choose == "About":
             or message on [LinkedIn](https://www.linkedin.com/in/marcin-orzech/)
             """
         )
+        st.info(
+        """
+        
+        I develop this website in my free time and aim to keep it free to use
+        for all and with full access to the data. If you find Wattrank useful and 
+        want to support its development or just want to show apprieciation, 
+        please consider buying me a cup of coffee. It will keep me motivated 
+        and help with the running costs of this site!
+        
+        [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/E1E3OIB2R)
+        
+        """
+        )
+
     with c1:
         st.markdown(
             """
@@ -1056,16 +1188,16 @@ elif choose == "About":
                 """
         )
 
-    st.markdown(
-        """
-                ### Licensing and citing
-                The content of this project itself is licensed under the
-                [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/),
-                and the underlying source code used to format
-                and display that content is licensed under the
-                [GPL-3.0 license](https://github.com/sirlod/WattRank_dev/blob/main/LICENSE).
-                
-                If you are using Wattrank in your work, please cite  as (or accordingly to your prefered citation style):  
-                Orzech, M. W.; *WattRank - Compare energy storage devices.*; WattRank.; https://wattrank.com/  (access date: )
-                """
-    )
+        st.markdown(
+            """
+                    ### Licensing and citing
+                    The content of this project itself is licensed under the
+                    [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/),
+                    and the underlying source code used to format
+                    and display that content is licensed under the
+                    [GPL-3.0 license](https://github.com/sirlod/WattRank_dev/blob/main/LICENSE).
+                    
+                    If you are using Wattrank in your work, please cite  as (or accordingly to your prefered citation style):  
+                    Orzech, M. W.; *WattRank - Compare energy storage devices.*; WattRank.; https://wattrank.com/  (access date: )
+                    """
+        )
